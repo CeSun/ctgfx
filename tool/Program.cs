@@ -58,22 +58,72 @@ for (int i = start; i < files.Count; i++)
                     if (@class.SourceFile != files[i])
                         continue;
                     Console.WriteLine($"\tGenerate class:  {@class.FullName}");
-                    foreach (var method in @class.Functions)
-                    {
-                        if (method.Visibility != CppVisibility.Public)
-                            continue;
-
-                        sw.WriteLine($"// {@namespace.Name}{@class.Name}_{method.Name}()");
-                        Console.WriteLine($"\t\tGenerate method for {method.Name}");
-                    }
 
                     foreach (var constructor in @class.Constructors)
                     {
                         if (constructor.Visibility != CppVisibility.Public)
                             continue;
-
-                        sw.WriteLine($"// {@namespace.Name}Create{@class.Name}()");
+                        if (constructor.Parameters.Any(parameter =>
+                        {
+                            if (parameter.Type.TypeKind == CppTypeKind.Unexposed)
+                                return true;
+                            return false;
+                        }
+                        ))
+                            continue;
+                        {
+                            var (paramterTypeList, paramterList) = GetParameterList(constructor.Parameters);
+                            sw.WriteLine();
+                            sw.WriteLine($"void* {@namespace.Name}Create{@class.Name}{(constructor.Parameters.Count == 0 ? "" : constructor.Parameters.Count + "")}({paramterTypeList})");
+                            sw.WriteLine("{");
+                            sw.WriteLine($"\t return new {@namespace.Name}::{@class.Name}({paramterList});");
+                            sw.WriteLine("}");
+                            sw.WriteLine();
+                        }
                     }
+
+                    {
+                        sw.WriteLine();
+                        sw.WriteLine($"void {@namespace.Name}Destory{@class.Name}(void* obj)");
+                        sw.WriteLine("{");
+                        sw.WriteLine($"\tdelete ({@namespace.Name}::{@class.Name}*)obj;");
+                        sw.WriteLine("}");
+                        sw.WriteLine();
+                    }
+
+                    foreach (var method in @class.Functions)
+                    {
+                        if (method.Visibility != CppVisibility.Public)
+                            continue;
+                        if (method.IsStatic == true)
+                            continue;
+                        if (method.Parameters.Any(parameter =>
+                        {
+                            if (parameter.Type.TypeKind == CppTypeKind.Unexposed)
+                                return true;
+                            return false;
+                        }
+                        ))
+                            continue;
+                        Console.WriteLine($"\t\tGenerate method for {method.Name}");
+
+                        var (paramterTypeList, paramterList) = GetParameterList(method.Parameters);
+                        sw.WriteLine();
+                        sw.WriteLine($"{method.ReturnType.FullName} {@namespace.Name}{@class.Name}_{method.Name}(void* obj{(paramterTypeList == "" ? "" : ", " + paramterTypeList)})");
+                        sw.WriteLine("{");
+                        if (method.ReturnType.FullName == "void")
+                        {
+                            sw.WriteLine($"\t (({@namespace.Name}::{@class.Name}*)obj)->{method.Name}({paramterList});");
+                        }
+                        else
+                        {
+                            sw.WriteLine($"\t return (({@namespace.Name}::{@class.Name}*)obj)->{method.Name}({paramterList});");
+                        }
+                        sw.WriteLine("}");
+                        sw.WriteLine();
+
+                    }
+
                 }
             }
         }
@@ -109,4 +159,39 @@ void processDirectory(DirectoryInfo directoryInfo)
     {
         processDirectory(dir);
     }
+}
+
+(string, string) GetParameterList(CppContainerList<CppParameter> parameters)
+{
+    string paramterTypeList = "";
+    string paramterList = "";
+    foreach (var paramter in parameters)
+    {
+        if (paramterTypeList != "")
+            paramterTypeList += ", ";
+        if (paramterList != "")
+            paramterList += ", ";
+        switch (paramter.Type.TypeKind)
+        {
+            case CppTypeKind.Enum:
+            case CppTypeKind.Primitive:
+                paramterTypeList += paramter.Type.FullName + " " + paramter.Name;
+                break;
+            case CppTypeKind.Pointer:
+                paramterTypeList += "void* " + paramter.Name;
+                break;
+            case CppTypeKind.Reference:
+                paramterTypeList += paramter.Type.FullName.Replace(" const&", " const*") + " " + paramter.Name;
+                break;
+            default:
+                Console.WriteLine(paramter.Type.TypeKind + ": " + paramter.Type.FullName);
+                paramterTypeList += paramter.Type.FullName + " " + paramter.Name;
+                break;
+
+        }
+        paramterList += "(" + paramter.Type.FullName + ") " + paramter.Name;
+    }
+
+    return (paramterTypeList, paramterList);
+
 }
